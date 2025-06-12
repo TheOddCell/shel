@@ -1,0 +1,299 @@
+#!/usr/bin/env python3
+# shel v1.0.0
+# licenced under unlicence
+# see shel --version for more info
+
+import sys
+import os
+import time
+import getpass
+import platform
+import re
+import pathlib
+import shutil
+
+# ===== DEFAULT Environment Variables and Config =====
+home = pathlib.Path.home()
+vars = {
+    "PROMPT": "{textcolor:cyan}-> {textcolor:clear}",
+    "PROMPT2": "{textcolor:magenta}-> {textcolor:clear}",
+    "RPROMPT": "{info:workingdirectory}"
+}
+
+aliases = {}
+
+# ===== Colors =====
+class textcolor:
+    reset         = "\033[0m"
+    black         = "\033[30m"
+    red           = "\033[31m"
+    green         = "\033[32m"
+    yellow        = "\033[33m"
+    blue          = "\033[34m"
+    magenta       = "\033[35m"
+    cyan          = "\033[36m"
+    white         = "\033[37m"
+    lightblack    = "\033[90m"
+    lightred      = "\033[91m"
+    lightgreen    = "\033[92m"
+    lightyellow   = "\033[93m"
+    lightblue     = "\033[94m"
+    lightmagenta  = "\033[95m"
+    lightcyan     = "\033[96m"
+    lightwhite    = "\033[97m"
+    clear         = reset  # alias
+
+class bgcolor:
+    black         = "\033[40m"
+    red           = "\033[41m"
+    green         = "\033[42m"
+    yellow        = "\033[43m"
+    blue          = "\033[44m"
+    magenta       = "\033[45m"
+    cyan          = "\033[46m"
+    white         = "\033[47m"
+    lightblack    = "\033[100m"
+    lightred      = "\033[101m"
+    lightgreen    = "\033[102m"
+    lightyellow   = "\033[103m"
+    lightblue     = "\033[104m"
+    lightmagenta  = "\033[105m"
+    lightcyan     = "\033[106m"
+    lightwhite    = "\033[107m"
+
+class otherescapes:
+    clearscreen = "\033[2J\033[H"
+    eraseline   = "\033[2K"
+
+# ===== Dynamic Info =====
+start_time = time.time()
+
+class info:
+    @staticmethod
+    def workingdirectory():
+        return os.getcwd()
+
+    @staticmethod
+    def user():
+        return getpass.getuser()
+
+    @staticmethod
+    def hostname():
+        return platform.node()
+
+    @staticmethod
+    def pythonversion():
+        return platform.python_version()
+
+    @staticmethod
+    def shelversion():
+        return "shel v0.0.1"
+
+    @staticmethod
+    def uptime():
+        return str(int(time.time() - start_time)) + "s"
+
+# ===== Tools =====
+class tools:
+    @staticmethod
+    def pad10():
+        return " " * 10
+
+    @staticmethod
+    def newline():
+        return "\n"
+
+    @staticmethod
+    def timestamp():
+        return time.strftime("%H:%M:%S")
+
+    @staticmethod
+    def date():
+        return time.strftime("%Y-%m-%d")
+
+# ===== Formatter =====
+def pharseString(input_str):
+    if input_str.strip().startswith("#"):
+        return ""  # ignore comment lines
+
+    input_str = re.sub(r"\{textcolor:([a-zA-Z0-9_]+)\}", lambda m: getattr(textcolor, m.group(1), ""), input_str)
+    input_str = re.sub(r"\{bgcolor:([a-zA-Z0-9_]+)\}", lambda m: getattr(bgcolor, m.group(1), ""), input_str)
+    input_str = re.sub(r"\{info:([a-zA-Z0-9_]+)\}", lambda m: str(getattr(info, m.group(1))()) if hasattr(info, m.group(1)) else "", input_str)
+    input_str = re.sub(r"\{tool:([a-zA-Z0-9_]+)\}", lambda m: str(getattr(tools, m.group(1))()) if hasattr(tools, m.group(1)) else "", input_str)
+    input_str = re.sub(r"\{var:([a-zA-Z0-9_]+)\}", lambda m: str(vars.get(m.group(1), "")), input_str)
+    return input_str
+
+# ===== Config Files =====
+try:
+    with open(home / ".shelconf") as f:
+        exec(f.read())
+except:
+    pass
+
+# ===== Helper: Calculate visible length ignoring ANSI codes =====
+def visible_len(s):
+    ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
+    return len(ansi_escape.sub('', s))
+
+# ===== Helper: Expand aliases =====
+def expand_aliases(cmd):
+    parts = cmd.strip().split()
+    if parts and parts[0] in aliases:
+        aliased = aliases[parts[0]]
+        aliased_parts = aliased.split()
+        return " ".join(aliased_parts + parts[1:])
+    return cmd
+
+# ===== Interactive Loop =====
+def interactiveShel():
+    while True:
+        try:
+            # RPROMPT printing (right aligned)
+            try:
+                rprompt_raw = pharseString(vars.get("RPROMPT", ""))
+                rprompt = pharseString(rprompt_raw)
+                width = shutil.get_terminal_size((80, 20)).columns
+                pad = max(0, width - visible_len(rprompt))
+                print(" " * pad + rprompt, end="\r")
+            except:
+                pass
+
+            user_input = input(pharseString(vars["PROMPT"]))
+            if not user_input.strip():
+                continue
+
+            # Expand aliases before processing
+            user_input = expand_aliases(user_input)
+
+            # Builtin commands
+            if user_input.strip() == "exit":
+                break
+
+            elif user_input.strip().startswith("#"):
+                continue
+
+            elif user_input.strip().startswith("cd"):
+                parts = user_input.strip().split(maxsplit=1)
+                try:
+                    path = parts[1] if len(parts) > 1 else str(home)
+                    os.chdir(os.path.expanduser(path))
+                except Exception as e:
+                    print(f"cd: {e}")
+
+            elif user_input.strip().startswith("set"):
+                # Usage: set VAR=VALUE or just "set" to list vars
+                args = user_input.strip().split(maxsplit=1)
+                if len(args) == 1:
+                    # list all vars
+                    for k, v in vars.items():
+                        print(f"{k}={v}")
+                else:
+                    set_arg = args[1]
+                    if "=" in set_arg:
+                        k, v = set_arg.split("=", 1)
+                        vars[k.strip()] = v.strip()
+                    else:
+                        print("Usage: set VAR=VALUE")
+
+            elif user_input.strip().startswith("add"):
+                # add <python code> -> exec it
+                args = user_input.strip().split(maxsplit=1)
+                if len(args) == 1:
+                    print("Usage: add <python_code>")
+                else:
+                    try:
+                        exec(args[1], globals(), locals())
+                    except Exception as e:
+                        print(f"add error: {e}")
+
+            elif user_input.strip().startswith("alias"):
+                # alias name='command'
+                args = user_input.strip().split(maxsplit=1)
+                if len(args) == 1:
+                    # list aliases
+                    for k, v in aliases.items():
+                        print(f"alias {k}='{v}'")
+                else:
+                    # parse alias command, e.g. alias ll='ls -l'
+                    alias_def = args[1]
+                    m = re.match(r"(\w+)=(?:'|\")(.+)(?:'|\")", alias_def)
+                    if m:
+                        name, cmd = m.groups()
+                        aliases[name] = cmd
+                    else:
+                        print("Usage: alias name='command'")
+
+            else:
+                os.system(user_input)
+
+        except (KeyboardInterrupt, EOFError):
+            print("\nexit")
+            break
+
+# ===== Entry Point =====
+if __name__ == "__main__":
+    import stat
+    def require_root():
+        if os.geteuid() != 0:
+            print("This action requires root.")
+            sys.exit(1)
+
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        if arg == "--version":
+            print("""
+shel - the shell for people who don't care - v0.0.1
+licensed under the Unlicense
+build nothing this is Python
+maybe POSIX compliant
+licenced with unlicence. more info at https://unlicence.org/
+""")
+        elif arg == "--help":
+            print("it's a shel.\nshel is SHelIT.\nInstall as root with --install and remove with --uninstall")
+        elif arg == "--install":
+            require_root()
+            install_path = "/usr/local/bin/shel"
+            source_path = os.path.realpath(__file__)
+
+            if not os.path.exists(install_path):
+                shutil.copy2(source_path, install_path)
+                os.chmod(install_path, os.stat(install_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                print(f"Installed shel to {install_path}")
+            else:
+                print("shel is already installed at /usr/local/bin/shel")
+
+            with open("/etc/shells", "r") as f:
+                shells = f.read().splitlines()
+            if install_path not in shells:
+                with open("/etc/shells", "a") as f:
+                    f.write(f"{install_path}\n")
+                print("Added to /etc/shells")
+            else:
+                print("Already present in /etc/shells")
+
+        elif arg == "--uninstall":
+            require_root()
+            current = os.path.realpath(__file__)
+            install_path = "/usr/local/bin/shel"
+
+            if current != install_path:
+                print("Uninstall must be run from the installed location.")
+                sys.exit(1)
+
+            try:
+                os.remove(install_path)
+                print("Removed shel from /usr/local/bin")
+            except Exception as e:
+                print(f"Error deleting shel: {e}")
+
+            with open("/etc/shells", "r") as f:
+                lines = f.read().splitlines()
+            new_lines = [line for line in lines if line != install_path]
+            with open("/etc/shells", "w") as f:
+                f.write("\n".join(new_lines) + "\n")
+            print("Removed from /etc/shells")
+
+        else:
+            print(f"Unknown argument: {arg}. Working on shel scripts!")
+    else:
+        interactiveShel()
