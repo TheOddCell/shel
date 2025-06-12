@@ -17,7 +17,7 @@ home = pathlib.Path.home()
 vars = {
     "PROMPT": "{textcolor:cyan}-> {textcolor:clear}",
     "PROMPT2": "{textcolor:magenta}-> {textcolor:clear}",
-    "RPROMPT": "{info:workingdirectory}"
+    "RPROMPT": "{textcolor:yellow}{info:workingdirectory}"
 }
 
 aliases = {}
